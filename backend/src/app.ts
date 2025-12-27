@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import { rateLimit } from 'express-rate-limit';
 import { errors } from 'celebrate';
 import path from 'path';
 import mongoose from 'mongoose';
@@ -10,6 +11,15 @@ import { requestLogger, errorLogger } from './middlewares/logger';
 
 const app = express();
 
+// Настройка rate limiter
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 100,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: 'Слишком много запросов с этого IP, пожалуйста, попробуйте позже',
+});
+
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -18,20 +28,20 @@ app.use(express.urlencoded({ extended: true }));
 // Раздача статических файлов
 app.use('/images', express.static(path.join(__dirname, 'public', 'images')));
 
-// Логгер запросов (подключаем ДО роутов)
+// Логгер запросов
 app.use(requestLogger);
 
 // Подключение к MongoDB
 mongoose.connect(DB_ADDRESS)
   .then(() => {
-    // Используем стандартный вывод, так как логгер еще не настроен для этого
-    // В production можно использовать process.stdout.write или специализированный логгер
     process.stdout.write('Успешное подключение к MongoDB\n');
   })
   .catch((err: Error) => {
     process.stderr.write(`Ошибка подключения к MongoDB: ${err.message}\n`);
     process.exit(1);
   });
+
+app.use(limiter);
 
 // Роуты
 app.use('/', routes);
@@ -58,19 +68,19 @@ app.get('/', (_req, res) => {
   });
 });
 
-// Логгер ошибок (подключаем ПОСЛЕ роутов и ДО обработчиков ошибок)
-app.use(errorLogger);
-
 // Обработка ошибок celebrate
 app.use(errors());
 
 // Обработка 404 ошибок
 app.use(notFoundHandler);
 
+// Логгер ошибок
+app.use(errorLogger);
+
 // Централизованная обработка ошибок
 app.use(errorHandler);
 
-// Запуск сервера (перенесено из server.ts)
+// Запуск сервера
 app.listen(PORT, () => {
   process.stdout.write(`Сервер запущен на порту ${PORT}\n`);
 });
